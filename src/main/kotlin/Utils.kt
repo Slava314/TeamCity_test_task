@@ -11,13 +11,21 @@ internal const val SECRETS_PATH = "./src/main/resources/secrets/"
 
 internal const val JSON_FORMAT = "application/json"
 
-internal const val NUMBER_OF_COMMITS = 6
+internal const val NUMBER_OF_COMMITS = 100
+internal const val BATCH_SIZE = 10
 
-
+/**
+ * Read Auth token from secret.
+ * @return Auth token for Teamcity.
+ */
 fun getBearerAuthSecret(): String {
     return File(SECRETS_PATH + "bearer_auth.txt").readText()
 }
 
+/**
+ * Properties of Build Statistic
+ * @property str the name of property.
+ */
 enum class PropertyType(val str: String) {
     ARTIFACT_SIZE("ArtifactsSize"),
     BUILD_DURATION("BuildDuration"),
@@ -29,56 +37,76 @@ enum class PropertyType(val str: String) {
 }
 
 
-val propertyNames: List<PropertyType> = listOf(
-    PropertyType.ARTIFACT_SIZE,
-    PropertyType.BUILD_DURATION,
-    PropertyType.BUILD_TEST_STATUS,
-    PropertyType.IGNORED_TEST_COUNT,
-    PropertyType.PASSED_TEST_COUNT,
-    PropertyType.SUCCESS_RATE,
-    PropertyType.TOTAL_TEST_COUNT
-)
-
+/**
+ * Class contains build statistics
+ * @property hash hash of with which this build was run
+ * @property buildId id of build
+ * @property statMap map from property name to value
+ */
 class BuildStatistics(val hash: String, val buildId: String) {
     private val statMap: MutableMap<PropertyType, Int> = EnumMap(PropertyType::class.java)
 
     constructor(hash: String, buildId: String, property: List<Property>) : this(hash, buildId) {
-        propertyNames.forEach {
+        PropertyType.values().forEach {
             statMap[it] = property.find { prop -> prop.name == it.str }?.value?.toInt() ?: -1
         }
     }
 
+    /**
+     * @return pretty string view of build
+     */
     override fun toString(): String {
         val sb = StringBuilder()
-        sb.append("\nBuild: buildId=$buildId, hash=$hash\n")
-        statMap.forEach { sb.append("$it\n") }
+        sb.appendLine("\nBuild: buildId=$buildId, hash=$hash")
+        statMap.forEach { sb.appendLine("$it") }
         return sb.toString()
     }
 
+    /**
+     * @return value of BUILD_DURATION property
+     */
     fun getBuildDuration(): Int {
         return statMap[PropertyType.BUILD_DURATION]!!
     }
 
+    /**
+     * @return value of BUILD_TEST_STATUS property
+     */
     fun getBuildTestStatus(): Int {
         return statMap[PropertyType.BUILD_TEST_STATUS]!!
     }
 
+    /**
+     * @return value of ARTIFACT_SIZE property
+     */
     fun getArtifactSize(): Int {
         return statMap[PropertyType.ARTIFACT_SIZE]!!
     }
 
+    /**
+     * @return value of IGNORED_TEST_COUNT property
+     */
     fun getIgnoredTestCount(): Int {
         return statMap[PropertyType.IGNORED_TEST_COUNT]!!
     }
 
+    /**
+     * @return value of PASSED_TEST_COUNT property
+     */
     fun getPassedTestCount(): Int {
         return statMap[PropertyType.PASSED_TEST_COUNT]!!
     }
 
+    /**
+     * @return value of TOTAL_TEST_COUNT property
+     */
     fun getTotalTestCount(): Int {
         return statMap[PropertyType.TOTAL_TEST_COUNT]!!
     }
 
+    /**
+     * @return value of SUCCESS_RATE property
+     */
     fun getSuccessRate(): Int {
         return statMap[PropertyType.SUCCESS_RATE]!!
     }

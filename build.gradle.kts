@@ -21,7 +21,6 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.2.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.0-RC")
     implementation("io.ktor:ktor-client-content-negotiation:2.2.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
 }
 
 tasks.test {

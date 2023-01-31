@@ -12,8 +12,15 @@ import kotlinx.serialization.json.Json
 import org.eclipse.jgit.api.Git
 import java.io.File
 import java.lang.Thread.sleep
+import kotlin.jvm.Throws
 
-
+/**
+ * Processes post request to TeamCity server
+ * @param client to process request
+ * @param url for request
+ * @param body serializable class for json body of request
+ * @return HttpResponse
+ */
 suspend fun post(client: HttpClient, url: String, body: Any): HttpResponse {
     val res = client.post(url) {
         headers {
@@ -26,6 +33,12 @@ suspend fun post(client: HttpClient, url: String, body: Any): HttpResponse {
     return res
 }
 
+/**
+ * Processes get request to TeamCity server
+ * @param client to process request
+ * @param url for request
+ * @return HttpResponse
+ */
 suspend fun get(client: HttpClient, url: String): HttpResponse {
     val res = client.get(url) {
         headers {
@@ -37,6 +50,12 @@ suspend fun get(client: HttpClient, url: String): HttpResponse {
     return res
 }
 
+/**
+ * Processes delete request to TeamCity server
+ * @param client to process request
+ * @param url for request
+ * @return HttpResponse
+ */
 suspend fun delete(client: HttpClient, url: String): HttpResponse {
     val res = client.delete(url) {
         headers {
@@ -48,6 +67,11 @@ suspend fun delete(client: HttpClient, url: String): HttpResponse {
     return res
 }
 
+/**
+ * Check the status of HttpResponse
+ * @param res HttpResponse
+ */
+@Throws(IllegalStateException::class)
 suspend fun checkStatus(res: HttpResponse) {
     if (299 < res.status.value || res.status.value < 200) {
         println(res.status)
@@ -152,7 +176,7 @@ suspend fun main() {
     val builds = mutableListOf<BuildStatistics>()
     val lastCommit = mutableListOf<BuildId>()
 
-    val batchSize = 3
+
     var count = 0
     for (commit in allCommits) {
         val hash: String = commit.name
@@ -192,7 +216,7 @@ suspend fun main() {
         lastCommit.add(build)
         count++
 
-        if (count % batchSize == 0 || count == NUMBER_OF_COMMITS) {
+        if (count % BATCH_SIZE == 0 || count == NUMBER_OF_COMMITS) {
             builds.addAll(lastCommit.map {
                 while (true) {
                     // get build state
