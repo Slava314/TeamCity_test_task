@@ -12,16 +12,41 @@ import kotlinx.serialization.json.Json
 import org.eclipse.jgit.api.Git
 import java.io.File
 import java.lang.Thread.sleep
+import kotlin.math.ceil
 
 
 suspend fun post(client: HttpClient, url: String, body: Any): HttpResponse {
-    return client.post(url) {
+    val res = client.post(url) {
         headers {
             append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
             append(HttpHeaders.ContentType, JSON_FORMAT)
         }
         setBody(body)
     }
+    checkStatus(res)
+    return res
+}
+
+suspend fun get(client: HttpClient, url: String): HttpResponse {
+    val res = client.get(url) {
+        headers {
+            append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
+            append(HttpHeaders.Accept, JSON_FORMAT)
+        }
+    }
+    checkStatus(res)
+    return res
+}
+
+suspend fun delete(client: HttpClient, url: String): HttpResponse {
+    val res = client.delete(url) {
+        headers {
+            append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
+            append(HttpHeaders.Accept, JSON_FORMAT)
+        }
+    }
+    checkStatus(res)
+    return res
 }
 
 suspend fun checkStatus(res: HttpResponse) {
@@ -37,14 +62,14 @@ suspend fun checkStatus(res: HttpResponse) {
 
 suspend fun main(args: Array<String>) {
 
-    val file = ASTMINER_PATH.toFile()
-    file.deleteRecursively()
+    val directory = ASTMINER_PATH.toFile()
+    directory.deleteRecursively()
     val git = Git.cloneRepository()
         .setURI(ASTMINER_URL)
-        .setDirectory(file)
+        .setDirectory(directory)
         .call()
 
-    val suf = "25"
+    val suf = "44"
     val projectName = "ast$suf"
     val projectId = "id_$projectName"
     val vcsRootName = "local_git_$suf"
@@ -62,14 +87,13 @@ suspend fun main(args: Array<String>) {
             })
         }
     }
-    var res: HttpResponse = post(
+    post(
         client,
         "$TEAMCITY_PATH/app/rest/projects",
         NewProjectDescription(projectName, projectId)
     )
-    checkStatus(res)
 
-    res = post(
+    post(
         client,
         "$TEAMCITY_PATH/app/rest/vcs-roots",
         VcsRoot(
@@ -83,9 +107,8 @@ suspend fun main(args: Array<String>) {
             )
         )
     )
-    checkStatus(res)
 
-    res = post(
+    post(
         client,
         "$TEAMCITY_PATH/app/rest/buildTypes",
         BuildType(
@@ -115,26 +138,28 @@ suspend fun main(args: Array<String>) {
             )
         )
     )
-    checkStatus(res)
 
-    val vcsRootInstance: VcsRootInstance =
-        client.get("$TEAMCITY_PATH/app/rest/vcs-root-instances/vcsRoot:(id:($vcsRootId))") {
-            headers {
-                append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
-                append(HttpHeaders.Accept, JSON_FORMAT)
-            }
-        }.body()
+    val vcsRootInstance: VcsRootInstance = get(
+        client,
+        "$TEAMCITY_PATH/app/rest/vcs-root-instances/vcsRoot:(id:($vcsRootId))"
+    ).body()
 
-    val lst = git.log().call().take(2).map { commit ->
-        val hash = commit.name
-        println(commit.name)
-        res = post(
+    val allCommits = git.log().call()
+    val builds = mutableListOf<BuildStatistics>()
+    val lastCommit = mutableListOf<BuildId>()
+
+    val batchSize = 3
+    var count = 0
+    for (commit in allCommits) {
+        val hash: String = commit.name
+
+        post(
             client,
             "$TEAMCITY_PATH/app/rest/projects/id:$projectId/buildTypes",
             NewBuildTypeDescription(
                 "id:$buildTypeId",
-                "$buildTypeId$hash",
-                "$buildTypeName$hash",
+                "${buildTypeId}_$hash",
+                "${buildTypeName}_$hash",
                 true
             )
         )
@@ -143,7 +168,7 @@ suspend fun main(args: Array<String>) {
             client,
             "$TEAMCITY_PATH/app/rest/buildQueue",
             Build(
-                BuildType("$buildTypeName$hash"),
+                BuildType("${buildTypeName}_$hash"),
                 Comment(hash),
                 Revisions(
                     listOf(
@@ -157,46 +182,61 @@ suspend fun main(args: Array<String>) {
             )
         ).body()
 
+        build.hash = hash
+        lastCommit.add(build)
+        count++
 
-        build
-    }
+        if (count % batchSize == 0 || count == NUMBER_OF_COMMITS) {
+            builds.addAll(lastCommit.map {
+                while (true) {
+                    val response: BuildId = get(
+                        client,
+                        "$TEAMCITY_PATH/app/rest/builds/id:${it.id}"
+                    ).body()
+                    if (response.state == "finished") {
+                        break
+                    }
+                    withContext(Dispatchers.IO) {
+                        sleep(5000)
+                    }
+                }
+                val response: BuildStat = get(
+                    client,
+                    "$TEAMCITY_PATH/app/rest/builds/id:${it.id}/statistics"
+                ).body()
 
-    val maxId = lst.maxBy { it.id }
+                delete(
+                    client,
+                    "$TEAMCITY_PATH/app/rest/buildTypes/id:${it.buildTypeId}"
+                )
 
-    var state = ""
-
-    while (state != "finished") {
-        val response: BuildId = client.get("$TEAMCITY_PATH/app/rest/builds/id:${maxId.id}") {
-            headers {
-                append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
-                append(HttpHeaders.Accept, JSON_FORMAT)
+                BuildStatistics(it.hash.toString(), it.id, response.property)
+            })
+            lastCommit.clear()
+            if (count == NUMBER_OF_COMMITS) {
+                break
             }
-        }.body()
-        withContext(Dispatchers.IO) {
-            sleep(20000)
         }
-        state = response.state
     }
-
-    val ans = lst.map {
-        val response: BuildStat = client.get("$TEAMCITY_PATH/app/rest/builds/id:${it.id}/statistics") {
-            headers {
-                append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
-                append(HttpHeaders.Accept, JSON_FORMAT)
-            }
-        }.body()
-
-        client.delete("$TEAMCITY_PATH/app/rest/buildTypes/id:${it.buildTypeId}") {
-            headers {
-                append(HttpHeaders.Authorization, "Bearer " + getBearerAuthSecret())
-                append(HttpHeaders.ContentType, JSON_FORMAT)
-            }
-        }
-
-        response
-    }
-    print(ans)
-
-
     client.close()
+
+    val buildFile = File("./builds.txt")
+    buildFile.writeText(builds.toString())
+
+    val statisticsFile = File("./statistics.txt")
+
+    val sb = StringBuilder()
+
+    val success = builds.count { it.statMap[PropertyType.SUCCESS_RATE] == 1 }
+
+    sb.append("Number of success builds: $success\n")
+    if (success != NUMBER_OF_COMMITS) {
+        sb.append("Failed builds:\n")
+        builds.filter { it.statMap[PropertyType.SUCCESS_RATE] != 1 }
+            .forEach { sb.append("id=${it.buildId}, commit hash=${it.hash}\n") }
+    }
+
+
+    statisticsFile.writeText(sb.toString())
+
 }
