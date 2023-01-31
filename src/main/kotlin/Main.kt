@@ -12,7 +12,6 @@ import kotlinx.serialization.json.Json
 import org.eclipse.jgit.api.Git
 import java.io.File
 import java.lang.Thread.sleep
-import kotlin.math.ceil
 
 
 suspend fun post(client: HttpClient, url: String, body: Any): HttpResponse {
@@ -50,9 +49,9 @@ suspend fun delete(client: HttpClient, url: String): HttpResponse {
 }
 
 suspend fun checkStatus(res: HttpResponse) {
-    if (res.status.value != 200) {
+    if (299 < res.status.value || res.status.value < 200) {
         println(res.status)
-        val resFile = File("tmp.json")
+        val resFile = File("error.json")
         val responseBody: ByteArray = res.body()
         resFile.writeBytes(responseBody)
         println(resFile.path)
@@ -60,8 +59,7 @@ suspend fun checkStatus(res: HttpResponse) {
     }
 }
 
-suspend fun main(args: Array<String>) {
-
+suspend fun main() {
     val directory = ASTMINER_PATH.toFile()
     directory.deleteRecursively()
     val git = Git.cloneRepository()
@@ -69,14 +67,17 @@ suspend fun main(args: Array<String>) {
         .setDirectory(directory)
         .call()
 
-    val suf = "44"
-    val projectName = "ast$suf"
+    val suf = List(4) {
+        (('a'..'z') + ('A'..'Z') + ('0'..'9')).random()
+    }.joinToString("")
+    val projectName = "astminer_$suf"
+    println("Project name: $projectName")
     val projectId = "id_$projectName"
-    val vcsRootName = "local_git_$suf"
+    val vcsRootName = "${projectName}_local_git"
     val vcsRootId = "id_$vcsRootName"
-    val buildTypeName = "main_build$suf"
+    val buildTypeName = "${projectName}_main_build"
     val buildTypeId = "id_$buildTypeName"
-    val vcsRootEntryId = "id_vcsRootEntry$suf"
+    val vcsRootEntryId = "id_${projectName}_vcs_root_entry"
 
     val client = HttpClient(OkHttp) {
         install(ContentNegotiation) {
@@ -87,12 +88,13 @@ suspend fun main(args: Array<String>) {
             })
         }
     }
+    // make new project
     post(
         client,
         "$TEAMCITY_PATH/app/rest/projects",
         NewProjectDescription(projectName, projectId)
     )
-
+    // add vcs-root from cloned git project
     post(
         client,
         "$TEAMCITY_PATH/app/rest/vcs-roots",
@@ -102,12 +104,13 @@ suspend fun main(args: Array<String>) {
                 listOf(
                     Property("authMethod", "ANONYMOUS"),
                     Property("branch", "refs/heads/master"),
-                    Property("url", "/Users/aku314/IdeaProjects/astminer")
+                    Property("url", ASTMINER_PATH.toString())
                 )
             )
         )
     )
 
+    // add default buildType with one gradle step
     post(
         client,
         "$TEAMCITY_PATH/app/rest/buildTypes",
@@ -139,6 +142,7 @@ suspend fun main(args: Array<String>) {
         )
     )
 
+    // get vcsRootInstance
     val vcsRootInstance: VcsRootInstance = get(
         client,
         "$TEAMCITY_PATH/app/rest/vcs-root-instances/vcsRoot:(id:($vcsRootId))"
@@ -153,29 +157,31 @@ suspend fun main(args: Array<String>) {
     for (commit in allCommits) {
         val hash: String = commit.name
 
+        // copy default build to start with commit
         post(
             client,
             "$TEAMCITY_PATH/app/rest/projects/id:$projectId/buildTypes",
             NewBuildTypeDescription(
                 "id:$buildTypeId",
-                "${buildTypeId}_$hash",
                 "${buildTypeName}_$hash",
+                "${buildTypeId}_$hash",
                 true
             )
         )
 
+        // push new build in queue
         val build: BuildId = post(
             client,
             "$TEAMCITY_PATH/app/rest/buildQueue",
             Build(
-                BuildType("${buildTypeName}_$hash"),
+                BuildType("${buildTypeId}_$hash"),
                 Comment(hash),
                 Revisions(
                     listOf(
                         Revision(
                             hash,
                             "refs/heads/master",
-                            VcsRootInstance(vcsRootInstance.id, vcsRootInstance.vcsRootId, vcsRootInstance.name)
+                            vcsRootInstance
                         )
                     )
                 )
@@ -189,30 +195,43 @@ suspend fun main(args: Array<String>) {
         if (count % batchSize == 0 || count == NUMBER_OF_COMMITS) {
             builds.addAll(lastCommit.map {
                 while (true) {
+                    // get build state
                     val response: BuildId = get(
                         client,
                         "$TEAMCITY_PATH/app/rest/builds/id:${it.id}"
                     ).body()
                     if (response.state == "finished") {
+                        sleep(5)
                         break
                     }
                     withContext(Dispatchers.IO) {
                         sleep(5000)
                     }
                 }
-                val response: BuildStat = get(
-                    client,
-                    "$TEAMCITY_PATH/app/rest/builds/id:${it.id}/statistics"
-                ).body()
+                var buildStat: BuildStatistics
+                while (true) {
+                    // get finished build statistics
+                    val response: BuildStat = get(
+                        client,
+                        "$TEAMCITY_PATH/app/rest/builds/id:${it.id}/statistics"
+                    ).body()
 
+                    buildStat = BuildStatistics(it.hash.toString(), it.id, response.property)
+                    if (buildStat.getArtifactSize() != -1) {
+                        break
+                    }
+                    sleep(5)
+                }
+                // delete build
                 delete(
                     client,
                     "$TEAMCITY_PATH/app/rest/buildTypes/id:${it.buildTypeId}"
                 )
 
-                BuildStatistics(it.hash.toString(), it.id, response.property)
+                buildStat
             })
             lastCommit.clear()
+            println("$count builds finished")
             if (count == NUMBER_OF_COMMITS) {
                 break
             }
@@ -226,17 +245,54 @@ suspend fun main(args: Array<String>) {
     val statisticsFile = File("./statistics.txt")
 
     val sb = StringBuilder()
+    val successBuilds = builds.filter { it.getSuccessRate() == 1 }
+    val success = successBuilds.size
 
-    val success = builds.count { it.statMap[PropertyType.SUCCESS_RATE] == 1 }
-
-    sb.append("Number of success builds: $success\n")
+    sb.appendLine("Successful builds: $success/$NUMBER_OF_COMMITS, ${success / NUMBER_OF_COMMITS.toDouble() * 100}%")
     if (success != NUMBER_OF_COMMITS) {
-        sb.append("Failed builds:\n")
-        builds.filter { it.statMap[PropertyType.SUCCESS_RATE] != 1 }
-            .forEach { sb.append("id=${it.buildId}, commit hash=${it.hash}\n") }
+        sb.appendLine("Failed builds:")
+        builds.filter { it.getSuccessRate() != 1 }
+            .forEach { sb.appendLine("id=${it.buildId}, commit hash=${it.hash}") }
     }
+    sb.appendLine()
+    val buildWithMaxTime = successBuilds.maxBy { it.getBuildDuration() }
+    sb.appendLine(
+        "Build with max build time: " +
+                "id=${buildWithMaxTime.buildId}, " +
+                "hash=${buildWithMaxTime.hash}, " +
+                "time=${buildWithMaxTime.getBuildDuration() / 1000} s"
+    )
 
+    sb.appendLine("Average build time: ${successBuilds.map { it.getBuildDuration() }.average() / 1000} s")
+    sb.appendLine()
+    val buildWithMaxArtifactSize = successBuilds.maxBy { it.getArtifactSize() }
+    sb.appendLine(
+        "Build with max artifact size: " +
+                "id=${buildWithMaxArtifactSize.buildId}, " +
+                "hash=${buildWithMaxArtifactSize.hash}, " +
+                "size=${buildWithMaxArtifactSize.getArtifactSize()}"
+    )
+
+    sb.appendLine(
+        "Average artifact size: ${
+            successBuilds.filter { it.getArtifactSize() != -1 }.map { it.getArtifactSize() }.average()
+        }"
+    )
+    sb.appendLine()
+    sb.appendLine("Tests statistics:")
+
+    successBuilds.filter { it.getSuccessRate() != -1 }.forEach {
+        sb.appendLine("id=${it.buildId}, hash=${it.hash}")
+        val total = it.getTotalTestCount()
+        val passed = it.getPassedTestCount()
+        val ignored = it.getIgnoredTestCount()
+        val failed = total - passed - ignored
+        sb.appendLine("    total: $total")
+        sb.appendLine("    passed tests: $passed, ${passed / total.toDouble() * 100}%")
+        sb.appendLine("    ignored tests: $ignored, ${ignored / total.toDouble() * 100}%")
+        sb.appendLine("    failed tests: $failed, ${failed / total.toDouble() * 100}%")
+    }
+    sb.appendLine()
 
     statisticsFile.writeText(sb.toString())
-
 }

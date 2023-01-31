@@ -1,1 +1,40 @@
-Number of success builds: 6
+Successful builds: 6/6, 100.0%
+
+Build with max build time: id=420, hash=8e7872fa78983b3b9b4ff4b9f70d24cc4dfed280, time=119 s
+Average build time: 117.94316666666667 s
+
+Build with max artifact size: id=422, hash=1d23c5f82f27eda51a927a7348a60628f3e44b1f, size=186652
+Average artifact size: 160313.66666666666
+
+Tests statistics:
+id=420, hash=8e7872fa78983b3b9b4ff4b9f70d24cc4dfed280
+    total: 205
+    passed tests: 192, 93.65853658536587%
+    ignored tests: 13, 6.341463414634147%
+    failed tests: 0, 0.0%
+id=421, hash=297885f8d42eed25ffe09b711add7203db10f711
+    total: 205
+    passed tests: 192, 93.65853658536587%
+    ignored tests: 13, 6.341463414634147%
+    failed tests: 0, 0.0%
+id=422, hash=1d23c5f82f27eda51a927a7348a60628f3e44b1f
+    total: 205
+    passed tests: 192, 93.65853658536587%
+    ignored tests: 13, 6.341463414634147%
+    failed tests: 0, 0.0%
+id=423, hash=eb7871787a4e2db526a4e22d81435c158a3e3786
+    total: 205
+    passed tests: 192, 93.65853658536587%
+    ignored tests: 13, 6.341463414634147%
+    failed tests: 0, 0.0%
+id=424, hash=b20af5306dbf33c57575007d7259bb315d94b3a3
+    total: 205
+    passed tests: 192, 93.65853658536587%
+    ignored tests: 13, 6.341463414634147%
+    failed tests: 0, 0.0%
+id=425, hash=5692fa522863b76b0fe2260a075cdba402fe1122
+    total: 205
+    passed tests: 192, 93.65853658536587%
+    ignored tests: 13, 6.341463414634147%
+    failed tests: 0, 0.0%
+

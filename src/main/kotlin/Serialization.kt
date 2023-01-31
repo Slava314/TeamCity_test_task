@@ -110,7 +110,7 @@ data class BuildId(
     val id: String,
     val state: String,
     val buildTypeId: String,
-    var hash : String? = null
+    var hash: String? = null
 )
 
 @Serializable
