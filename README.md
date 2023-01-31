@@ -5,7 +5,7 @@ Kotlin, Gradle, TeamCity
 
 ### Description
 
-After the start script add new project in TeamCity with local git repository as vcs-root. Make default build and run 100 builds with last commits. After it collect statistics of these builds and write it in `statistics.txt` and `build.txt`. 
+After the start script add new project in TeamCity with local git repository as vcs-root. Make default build and run 100 builds with last commits in batches by 10 builds. After it collect statistics of these builds and write it in `statistics.txt` and `build.txt`. 
 
 ### How to run project
 

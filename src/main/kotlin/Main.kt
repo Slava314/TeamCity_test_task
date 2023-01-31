@@ -269,8 +269,9 @@ suspend fun main() {
     val statisticsFile = File("./statistics.txt")
 
     val sb = StringBuilder()
-    val successBuilds = builds.filter { it.getSuccessRate() == 1 }
+    val successBuilds = builds.filter { it.getSuccessRate() != -1 }
     val success = successBuilds.size
+    val successTest = successBuilds.count { it.getSuccessRate() == 1 }
 
     sb.appendLine("Successful builds: $success/$NUMBER_OF_COMMITS, ${success / NUMBER_OF_COMMITS.toDouble() * 100}%")
     if (success != NUMBER_OF_COMMITS) {
@@ -278,6 +279,7 @@ suspend fun main() {
         builds.filter { it.getSuccessRate() != 1 }
             .forEach { sb.appendLine("id=${it.buildId}, commit hash=${it.hash}") }
     }
+    sb.appendLine("Builds with no failed tests: $successTest/$NUMBER_OF_COMMITS, ${successTest / NUMBER_OF_COMMITS.toDouble() * 100}%")
     sb.appendLine()
     val buildWithMaxTime = successBuilds.maxBy { it.getBuildDuration() }
     sb.appendLine(
