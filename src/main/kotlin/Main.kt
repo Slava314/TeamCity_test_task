@@ -13,6 +13,7 @@ import org.eclipse.jgit.api.Git
 import java.io.File
 import java.lang.Thread.sleep
 import kotlin.jvm.Throws
+import kotlin.math.round
 
 /**
  * Processes post request to TeamCity server
@@ -273,13 +274,13 @@ suspend fun main() {
     val success = successBuilds.size
     val successTest = successBuilds.count { it.getSuccessRate() == 1 }
 
-    sb.appendLine("Successful builds: $success/$NUMBER_OF_COMMITS, ${success / NUMBER_OF_COMMITS.toDouble() * 100}%")
+    sb.appendLine("Successful builds: $success/$NUMBER_OF_COMMITS, ${round(success / NUMBER_OF_COMMITS.toDouble() * 10000) / 100}%")
     if (success != NUMBER_OF_COMMITS) {
         sb.appendLine("Failed builds:")
-        builds.filter { it.getSuccessRate() != 1 }
+        builds.filter { it.getTotalTestCount() != 1 }
             .forEach { sb.appendLine("id=${it.buildId}, commit hash=${it.hash}") }
     }
-    sb.appendLine("Builds with no failed tests: $successTest/$NUMBER_OF_COMMITS, ${successTest / NUMBER_OF_COMMITS.toDouble() * 100}%")
+    sb.appendLine("Builds with no failed tests: $successTest/$NUMBER_OF_COMMITS, ${round(successTest / NUMBER_OF_COMMITS.toDouble() * 10000) / 100}%")
     sb.appendLine()
     val buildWithMaxTime = successBuilds.maxBy { it.getBuildDuration() }
     sb.appendLine(
@@ -307,16 +308,16 @@ suspend fun main() {
     sb.appendLine()
     sb.appendLine("Tests statistics:")
 
-    successBuilds.filter { it.getSuccessRate() != -1 }.forEach {
+    successBuilds.filter { it.getTotalTestCount() != -1 }.forEach {
         sb.appendLine("id=${it.buildId}, hash=${it.hash}")
         val total = it.getTotalTestCount()
         val passed = it.getPassedTestCount()
         val ignored = it.getIgnoredTestCount()
         val failed = total - passed - ignored
         sb.appendLine("    total: $total")
-        sb.appendLine("    passed tests: $passed, ${passed / total.toDouble() * 100}%")
-        sb.appendLine("    ignored tests: $ignored, ${ignored / total.toDouble() * 100}%")
-        sb.appendLine("    failed tests: $failed, ${failed / total.toDouble() * 100}%")
+        sb.appendLine("    passed tests: $passed, ${round(passed / total.toDouble() * 10000) / 100}%")
+        sb.appendLine("    ignored tests: $ignored, ${round(ignored / total.toDouble() * 10000) / 100}%")
+        sb.appendLine("    failed tests: $failed, ${round(failed / total.toDouble() * 10000) / 100}%")
     }
     sb.appendLine()
 
